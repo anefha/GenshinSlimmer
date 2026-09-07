@@ -455,7 +455,7 @@ do {
     $selection = @()
     $desc = ""
 
-    switch ($choice) {
+    switch -CaseSensitive ($choice) {
         'C' { Process-Compression; continue }
         'c' { Process-Compression; continue }
 
