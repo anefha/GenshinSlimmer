@@ -439,8 +439,8 @@ do {
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host " B. Stub 'Boy' Videos"
-    Write-Host " G. Stub 'Girl' Videos"
+    Write-Host " b. Stub 'Boy' Videos"
+    Write-Host " g. Stub 'Girl' Videos"
     Write-Host " U. UNLOCK ALL (Allow Re-download before major patch)" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " G. STUB ALL + GIRL (Regions + Events + UGC + Girl)" -ForegroundColor Magenta
@@ -473,6 +473,32 @@ do {
         '9'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMisc; $desc = "Events & Misc" }
         '10' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
 
+        # --- Only boy (b) ---
+        'b' {
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy
+            $desc = "Boy Videos"
+        }
+        # --- Only girl (g) ---
+        'g' {
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl
+            $desc = "Girl Videos"
+        }
+
+        # --- ALL BOY (B) ---
+        'B' {
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
+        }
+        # --- All GIRL (G) ---
+        'G' {
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
+        }
+
         'U' {
             Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
             $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
@@ -488,30 +514,6 @@ do {
             $desc = "UNLOCK ALL"
         }
 
-        'G' {
-            $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
-            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
-        }
-        'g' {
-            $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
-            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
-        }
-        'B' {
-            $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
-            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
-        }
-        'b' {
-            $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
-            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
-        }
         '0' { 
             $selection += Get-MatchingFiles $VideoSearchPaths $AllRegionPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
