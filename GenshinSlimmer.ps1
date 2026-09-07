@@ -419,11 +419,21 @@ Get-GamePath
 
 do {
     Clear-Host
+
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "   GenshinSlimmer v10" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
+    
+    # --- ADMIN CHECK START ---
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        Write-Host "Administrator Check: TRUE  (Running with full permissions)" -ForegroundColor Green
+    } else {
+        Write-Host "Administrator Check: FALSE (MUST RUN AS ADMIN! Errors will occur.)" -ForegroundColor Red
+    }
+    # --- ADMIN CHECK END ---
+
     Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
-    Write-Host ""
     Write-Host "Select content to stub & lock:"
     Write-Host " 1. Mondstadt"
     Write-Host " 2. Liyue"
