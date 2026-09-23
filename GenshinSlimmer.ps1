@@ -1,16 +1,38 @@
 <#
-    GenshinSlimmer v10
-    - Stubs files to 0KB to save space.
-    - Applies "Aggressive Lock" (ACL Permissions) to prevent the game from 
-      redownloading the stubbed files during its verification check.
-    - Handles both .usm and .usm.bak files across StreamingAssets and Persistent folders.
+    GenshinSlimmer v11
+    - Stubs cutscene videos and audio cache to 0KB to save 30-40+ GB of disk space.
+    - Manifest Synchronization Engine: Directly synchronizes Genshin's internal
+      asset database (res_versions_persist) so the in-game patcher validates 0KB
+      stubs as 100% intact, permanently stopping minor update re-downloads.
+    - Eliminates restrictive ACL Deny locks (which caused Error -9908 and download loops).
+    - Revision Manager: View and sync R/S/D revisions (res_revision, silence_revision, data_revision).
     - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / AQ70).
-    - Includes past events, Dainsleif quests, traveler gender cutscenes, and UGC audio cache.
+    - Dedicated gender options: Boy Traveler only, Girl Traveler only, or bulk.
+    - Handles both .usm and .usm.bak files across StreamingAssets and Persistent folders.
     - Includes interactive game folder scan/analysis mode.
     - Includes LZX NTFS compression.
     
     Author: dnullptr
 #>
+
+# --- SELF-ELEVATION (REQUIRE ADMIN) ---
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "Elevating privileges to Administrator..." -ForegroundColor Yellow
+    $scriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
+    if ($scriptPath) {
+        try {
+            $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+            Start-Process -FilePath "powershell.exe" -ArgumentList $argList -Verb RunAs
+            exit
+        } catch {
+            Write-Host "Failed to elevate automatically: $_" -ForegroundColor Red
+            Write-Host "Please right-click GenshinSlimmer.ps1 and choose 'Run as administrator'." -ForegroundColor Yellow
+            Read-Host "Press Enter to exit..."
+            exit
+        }
+    }
+}
 
 # --- CONFIGURATION ---
 $VideoSearchPaths = @(
@@ -25,7 +47,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v10" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v11" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -73,36 +95,154 @@ function Get-GamePath {
     }
 }
 
-function Toggle-FileLock {
-    param (
-        [string]$Path,
-        [bool]$Lock
-    )
-    
-    $file = Get-Item $Path
-    $acl = $file.GetAccessControl()
-    
-    # Define a "Deny Write" rule for Everyone
-    $permission = "Everyone"
-    $rights = "Write, Delete" 
-    $type = "Deny"
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($permission, $rights, $type)
-    
-    if ($Lock) {
-        # 1. Set ReadOnly FIRST (Before removing write permissions)
-        if (-not $file.IsReadOnly) { $file.IsReadOnly = $true }
-
-        # 2. Apply Deny Rule
-        $acl.AddAccessRule($rule)
-        $file.SetAccessControl($acl)
-    } else {
-        # 1. Remove Deny Rule FIRST (To regain write permissions)
-        $acl.RemoveAccessRule($rule) | Out-Null
-        $file.SetAccessControl($acl)
-
-        # 2. Remove ReadOnly
+function Remove-FileLock {
+    param ([string]$Path)
+    try {
+        $file = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if ($null -eq $file) { return }
         if ($file.IsReadOnly) { $file.IsReadOnly = $false }
+        $acl = $file.GetAccessControl()
+        $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+        $modified = $false
+        foreach ($r in $rules) {
+            if ($r.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Deny) {
+                $acl.RemoveAccessRuleSpecific($r)
+                $modified = $true
+            }
+        }
+        if ($modified) {
+            $file.SetAccessControl($acl)
+        }
+    } catch {}
+}
+
+function Sync-Manifest {
+    param ([switch]$Silent)
+
+    $CurrentLocation = (Get-Location).ProviderPath
+    $persistPath = Join-Path $CurrentLocation "GenshinImpact_Data\Persistent\res_versions_persist"
+    
+    if (-not (Test-Path $persistPath)) {
+        if (-not $Silent) {
+            Write-Host "`nCould not find 'res_versions_persist' at:" -ForegroundColor Yellow
+            Write-Host "$persistPath" -ForegroundColor DarkGray
+            Write-Host "Launch the game once to the start door so it creates this file." -ForegroundColor Gray
+            Read-Host "Press Enter to continue..."
+        }
+        return 0
     }
+
+    if (-not $Silent) {
+        Write-Host "`nScanning stubbed files to synchronize manifest..." -ForegroundColor Cyan
+    }
+
+    # Map all 0-byte (stubbed) files
+    $stubbedMap = @{}
+
+    foreach ($relPath in $VideoSearchPaths) {
+        $fullPath = Join-Path $CurrentLocation $relPath
+        if (Test-Path $fullPath) {
+            $files = Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 1024 }
+            foreach ($f in $files) {
+                $cleanName = if ($f.Name -like "*.bak") { $f.Name.Substring(0, $f.Name.Length - 4) } else { $f.Name }
+                $stubbedMap["StandaloneWindows64/$cleanName"] = $true
+            }
+        }
+    }
+
+    foreach ($relPath in $UGCSearchPaths) {
+        $fullPath = Join-Path $CurrentLocation $relPath
+        if (Test-Path $fullPath) {
+            $files = Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 1024 }
+            foreach ($f in $files) {
+                $cleanName = if ($f.Name -like "*.bak") { $f.Name.Substring(0, $f.Name.Length - 4) } else { $f.Name }
+                $stubbedMap["BeyondUGC/$cleanName"] = $true
+            }
+        }
+    }
+
+    $lines = Get-Content -LiteralPath $persistPath -Encoding utf8
+    $output = [System.Collections.Generic.List[string]]::new($lines.Count)
+    $patchedCount = 0
+
+    foreach ($line in $lines) {
+        $matched = $false
+        if ($line -match '"remoteName":\s*"([^"]+)"') {
+            $remoteName = $matches[1]
+            if ($stubbedMap.ContainsKey($remoteName)) {
+                $newLine = $line -replace '"fileSize":\s*\d+', '"fileSize": 0' -replace '"md5":\s*"[^"]+"', '"md5": "d41d8cd98f00b204e9800998ecf8427e"'
+                $output.Add($newLine)
+                $patchedCount++
+                $matched = $true
+            }
+        }
+        if (-not $matched) {
+            $output.Add($line)
+        }
+    }
+
+    # Backup original manifest once
+    $backupPath = "$persistPath.bak"
+    if (-not (Test-Path $backupPath)) {
+        try { Copy-Item -LiteralPath $persistPath -Destination $backupPath -Force } catch {}
+    }
+
+    [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+
+    if (-not $Silent) {
+        Write-Host "Success! Synchronized $patchedCount stubbed assets in res_versions_persist." -ForegroundColor Green
+        Write-Host "The in-game patcher will now treat these 0KB stubs as 100% valid." -ForegroundColor Cyan
+        Read-Host "Press Enter to return to menu..."
+    }
+
+    return $patchedCount
+}
+
+function Restore-Manifest {
+    param ([array]$FileNamesToRestore)
+
+    $CurrentLocation = (Get-Location).ProviderPath
+    $persistPath   = Join-Path $CurrentLocation "GenshinImpact_Data\Persistent\res_versions_persist"
+    $streamingPath = Join-Path $CurrentLocation "GenshinImpact_Data\StreamingAssets\res_versions_streaming"
+
+    if (-not (Test-Path $persistPath) -or -not (Test-Path $streamingPath)) { return 0 }
+
+    $lookup = @{}
+    $streamingLines = Get-Content -LiteralPath $streamingPath -Encoding utf8
+    foreach ($line in $streamingLines) {
+        if ($line -match '"remoteName":\s*"([^"]+)"') {
+            $lookup[$matches[1]] = $line
+        }
+    }
+
+    $restoreMap = @{}
+    foreach ($fn in $FileNamesToRestore) {
+        $cleanName = if ($fn -like "*.bak") { $fn.Substring(0, $fn.Length - 4) } else { $fn }
+        $restoreMap["StandaloneWindows64/$cleanName"] = $true
+        $restoreMap["BeyondUGC/$cleanName"] = $true
+    }
+
+    $persistLines = Get-Content -LiteralPath $persistPath -Encoding utf8
+    $output = [System.Collections.Generic.List[string]]::new($persistLines.Count)
+    $restoredCount = 0
+
+    foreach ($line in $persistLines) {
+        $matched = $false
+        if ($line -match '"remoteName":\s*"([^"]+)"') {
+            $remoteName = $matches[1]
+            if ($restoreMap.ContainsKey($remoteName) -and $lookup.ContainsKey($remoteName)) {
+                $output.Add($lookup[$remoteName])
+                $restoredCount++
+                $matched = $true
+            }
+        }
+        if (-not $matched) {
+            $output.Add($line)
+        }
+    }
+
+    [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+    return $restoredCount
 }
 
 # --- DEFINE PATTERNS ---
@@ -225,35 +365,32 @@ function Process-Stubbing {
         Write-Host "Files appear to be stubbed (0KB)." -ForegroundColor Gray
         Write-Host ""
         Write-Host "Select action:"
-        Write-Host " [1] Re-Apply Lock (Fix permissions if previous run errored)"
-        Write-Host " [2] Unlock & Delete (Force game to redownload)"
+        Write-Host " [1] Re-Sync Manifest (Register stubs as 0KB in res_versions_persist)"
+        Write-Host " [2] Restore & Delete (Force game to redownload real files on launch)"
         Write-Host " [3] Cancel"
         
         $action = Read-Host "Choice"
         
         if ($action -eq '1') {
-             foreach ($file in $FilesToStub) {
-                try {
-                    # Unlock first to clear weird states
-                    Toggle-FileLock -Path $file.FullName -Lock $false
-                    # Lock correctly
-                    Toggle-FileLock -Path $file.FullName -Lock $true
-                    Write-Host "Relocked: $($file.Name)" -ForegroundColor DarkGray
-                } catch { Write-Host "Error: $($file.Name)" -ForegroundColor Red }
-             }
-             Write-Host "`nLocks updated. Game should not redownload files now." -ForegroundColor Green
+            $synced = Sync-Manifest
         }
         elseif ($action -eq '2') {
+            $deletedNames = @()
             foreach ($file in $FilesToStub) {
                 try {
-                    Toggle-FileLock -Path $file.FullName -Lock $false
-                    Remove-Item $file.FullName -Force
-                    Write-Host "Unlocked & Deleted: $($file.Name)" -ForegroundColor DarkGray
-                } catch { Write-Host "Error unlocking: $($file.Name)" -ForegroundColor Red }
+                    Remove-FileLock -Path $file.FullName
+                    Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
+                    $deletedNames += $file.Name
+                    Write-Host "Removed stub: $($file.Name)" -ForegroundColor DarkGray
+                } catch { Write-Host "Error removing: $($file.Name)" -ForegroundColor Red }
             }
-            Write-Host "`nDone. The game will redownload these files on next launch." -ForegroundColor Yellow
+            if ($deletedNames.Count -gt 0) {
+                $restored = Restore-Manifest -FileNamesToRestore $deletedNames
+                Write-Host "`nRestored $restored manifest entries in res_versions_persist." -ForegroundColor Green
+            }
+            Write-Host "Done. The game will redownload these files on next launch." -ForegroundColor Yellow
+            Read-Host "Press Enter to continue..."
         }
-        Read-Host "Press Enter to continue..."
         return
     }
 
@@ -270,28 +407,32 @@ function Process-Stubbing {
     if ($ActiveFiles.Count -gt 3) { Write-Host " ... and others." -ForegroundColor DarkGray }
     
     Write-Host ""
-    Write-Host "This will STUB (0KB) and LOCK files to prevent the game from fixing them." -ForegroundColor Cyan
-    $confirmation = Read-Host "Proceed? (Y/N)"
+    Write-Host "This will STUB (0KB) files and synchronize the game's manifest (res_versions_persist)." -ForegroundColor Cyan
+    Write-Host "The in-game patcher will recognize these stubs as valid and will not redownload them." -ForegroundColor Gray
+    $confirmation = Read-Host "`nProceed? (Y/N)"
     
     if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
         $stubbedCount = 0
         foreach ($file in $ActiveFiles) {
             try {
-                # 1. Unlock first (clean slate - in case partially locked from failed run)
-                try { Toggle-FileLock -Path $file.FullName -Lock $false } catch {}
+                # 1. Clean slate - remove any legacy ACLs
+                Remove-FileLock -Path $file.FullName
                 
-                # 2. Stub
+                # 2. Stub to 0 bytes
                 New-Item -Path $file.FullName -ItemType File -Force | Out-Null
                 
-                # 3. Lock
-                Toggle-FileLock -Path $file.FullName -Lock $true
-                
-                Write-Host "Stubbed & Locked: $($file.Name)" -ForegroundColor DarkGray
+                Write-Host "Stubbed: $($file.Name)" -ForegroundColor DarkGray
                 $stubbedCount++
             }
             catch { Write-Host "Error: $($file.Name) - $_" -ForegroundColor Red }
         }
-        Write-Host "`nSuccess! Optimized $stubbedCount files." -ForegroundColor Green
+        Write-Host "`nSuccess! Stubbed $stubbedCount files." -ForegroundColor Green
+        
+        # 3. Synchronize with res_versions_persist
+        Write-Host "Synchronizing manifest with internal asset database..." -ForegroundColor Cyan
+        $synced = Sync-Manifest -Silent
+        Write-Host "Manifest synced! ($synced stubbed assets registered as 0KB)." -ForegroundColor Green
+        Write-Host "The game's in-game patcher will now treat these stubs as 100% valid." -ForegroundColor Cyan
     } else {
         Write-Host "Operation cancelled." -ForegroundColor Yellow
     }
@@ -316,27 +457,104 @@ function Process-UnlockOnly {
     Write-Host "Current Size:      $([math]::Round($totalBytesFound / 1MB, 2)) MB" -ForegroundColor Cyan
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "This will UNLOCK all files WITHOUT deleting them." -ForegroundColor Yellow
-    Write-Host "The game will be able to re-download these files naturally." -ForegroundColor Gray
-    Write-Host "Useful for big patches that require file updates." -ForegroundColor Gray
-    $confirmation = Read-Host "`nProceed? (Y/N)"
+    Write-Host "Select unlock mode:"
+    Write-Host " [1] Strip Legacy ACLs (Remove Deny Write rules, keep 0KB stubs & manifest synced)" -ForegroundColor Cyan
+    Write-Host " [2] Delete Stubs & Restore Manifest (Game will re-download full files on launch)" -ForegroundColor Yellow
+    Write-Host " [3] Cancel"
     
-    if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
-        $unlockedCount = 0
+    $subChoice = Read-Host "`nEnter choice"
+    if ($subChoice -eq '1') {
+        $count = 0
+        foreach ($file in $FilesToUnlock) {
+            Remove-FileLock -Path $file.FullName
+            $count++
+        }
+        Write-Host "`nStripped legacy ACL locks from $count files." -ForegroundColor Green
+        $synced = Sync-Manifest -Silent
+        Write-Host "Manifest synced ($synced stubs confirmed). Game can run freely without Error -9908." -ForegroundColor Cyan
+        Read-Host "`nPress Enter to return to menu..."
+    }
+    elseif ($subChoice -eq '2') {
+        $deletedNames = @()
         foreach ($file in $FilesToUnlock) {
             try {
-                Toggle-FileLock -Path $file.FullName -Lock $false
-                Write-Host "Unlocked: $($file.Name)" -ForegroundColor Green
-                $unlockedCount++
-            }
-            catch { Write-Host "Error: $($file.Name) - $_" -ForegroundColor Red }
+                Remove-FileLock -Path $file.FullName
+                Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
+                $deletedNames += $file.Name
+                Write-Host "Removed: $($file.Name)" -ForegroundColor DarkGray
+            } catch { Write-Host "Error deleting: $($file.Name)" -ForegroundColor Red }
         }
-        Write-Host "`nSuccess! Unlocked $unlockedCount files." -ForegroundColor Green
-        Write-Host "The game can now re-download these files during patches." -ForegroundColor Cyan
-    } else {
-        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        if ($deletedNames.Count -gt 0) {
+            $restored = Restore-Manifest -FileNamesToRestore $deletedNames
+            Write-Host "`nRestored $restored entries in res_versions_persist." -ForegroundColor Green
+        }
+        Write-Host "Done. The game will redownload these files naturally on next launch." -ForegroundColor Yellow
+        Read-Host "`nPress Enter to return to menu..."
     }
-    Read-Host "Press Enter to return to menu..."
+}
+
+function Process-RevisionManager {
+    $CurrentLocation = (Get-Location).ProviderPath
+    $persistentDir = Join-Path $CurrentLocation "GenshinImpact_Data\Persistent"
+
+    Clear-Host
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "   In-Game Revisions & Hotfix Status" -ForegroundColor Yellow
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "Directory: $persistentDir" -ForegroundColor DarkGray
+    Write-Host ""
+
+    $resRevFile     = Join-Path $persistentDir "res_revision"
+    $silenceRevFile = Join-Path $persistentDir "silence_revision"
+    $dataRevFile    = Join-Path $persistentDir "data_revision"
+    $scriptRevFile  = Join-Path $persistentDir "ScriptVersion"
+    $channelFile    = Join-Path $persistentDir "ChannelName"
+
+    $channel = if (Test-Path $channelFile) { (Get-Content $channelFile -Raw).Trim() } else { "OSRELWin" }
+    $script  = if (Test-Path $scriptRevFile) { (Get-Content $scriptRevFile -Raw).Trim() } else { "Unknown" }
+    $resRev  = if (Test-Path $resRevFile) { (Get-Content $resRevFile -Raw).Trim() } else { "Unknown" }
+    $silRev  = if (Test-Path $silenceRevFile) { (Get-Content $silenceRevFile -Raw).Trim() } else { "Unknown" }
+    $dataRev = if (Test-Path $dataRevFile) { (Get-Content $dataRevFile -Raw).Trim() } else { "Unknown" }
+
+    $versionString = "${channel}${script}_R${resRev}_S${silRev}_D${dataRev}"
+
+    Write-Host "Current In-Game Version String:" -ForegroundColor White
+    Write-Host "  $versionString" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Revision Components:" -ForegroundColor White
+    Write-Host "  [R] Resource Revision : $resRev" -ForegroundColor Yellow -NoNewline
+    Write-Host " (res_versions_persist - cutscenes, audio, models)" -ForegroundColor DarkGray
+    Write-Host "  [S] Silence Revision  : $silRev" -ForegroundColor Cyan -NoNewline
+    Write-Host " (silence_data_versions - tiny hotfix blocks)" -ForegroundColor DarkGray
+    Write-Host "  [D] Data Revision     : $dataRev" -ForegroundColor Magenta -NoNewline
+    Write-Host " (data_versions - gameplay Lua, quest data)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "How this helps with minor patches:" -ForegroundColor Gray
+    Write-Host "When HoYoverse pushes a minor in-game patch, R/S/D are updated." -ForegroundColor Gray
+    Write-Host "Matching 'res_revision' to the server's new R-number tells the game that" -ForegroundColor Gray
+    Write-Host "resources are already up-to-date, completely skipping the 2,580 file integrity check." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host " [1] Update Resource Revision (R-number) manually"
+    Write-Host " [2] Return to Menu"
+
+    $revChoice = Read-Host "`nEnter Choice"
+    if ($revChoice -eq '1') {
+        $newR = Read-Host "Enter new Resource Revision (e.g., $resRev)"
+        $newR = $newR.Trim().TrimStart('R').TrimStart('r')
+        if ($newR -match '^\d+$') {
+            try {
+                $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
+                Write-Host "`nSuccessfully updated res_revision to: $newR" -ForegroundColor Green
+                Write-Host "The game will now consider resource revision $newR already installed." -ForegroundColor Cyan
+            } catch {
+                Write-Host "`nFailed to write res_revision: $_" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "Invalid revision format. Must be numeric." -ForegroundColor Yellow
+        }
+        Read-Host "`nPress Enter to return to menu..."
+    }
 }
 
 function Get-CompressedFileSize {
@@ -420,11 +638,11 @@ Get-GamePath
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v10" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v11" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
+    Write-Host "Mode: Manifest-Sync Engine + Persistent Support" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "Select content to stub & lock:"
+    Write-Host "Select content to stub:"
     Write-Host " 1. Mondstadt"
     Write-Host " 2. Liyue"
     Write-Host " 3. Inazuma"
@@ -436,15 +654,16 @@ do {
     Write-Host "[WARNING: FINISH 7.0 AQ First!]" -ForegroundColor Red
     Write-Host " 9. Expired Events & Misc Cutscenes"
     Write-Host "10. UGC Cache (BeyondUGC)"
+    Write-Host "11. Stub 'Boy' Traveler Videos Only" -ForegroundColor Cyan
+    Write-Host "12. Stub 'Girl' Traveler Videos Only" -ForegroundColor Magenta
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
+    Write-Host " M. Sync Manifest (Fix In-Game Patcher / Stop Minor Update Redownloads)" -ForegroundColor Green
+    Write-Host " R. View / Update In-Game Revisions (R / S / D)" -ForegroundColor Cyan
+    Write-Host " U. UNLOCK / Restore Files & Clean Legacy ACLs" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host " B. Stub 'Boy' Videos"
-    Write-Host " G. Stub 'Girl' Videos"
-    Write-Host " U. UNLOCK ALL (Allow Re-download before major patch)" -ForegroundColor Yellow
-    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host " G. STUB ALL + GIRL (Regions + Events + UGC + Girl)" -ForegroundColor Magenta
     Write-Host " B. STUB ALL + BOY (Regions + Events + UGC + Boy)" -ForegroundColor Cyan
+    Write-Host " G. STUB ALL + GIRL (Regions + Events + UGC + Girl)" -ForegroundColor Magenta
     Write-Host " 0. STUB ALL (Regions + Events + UGC - Without Boy/Girl)" -ForegroundColor Red
     Write-Host " C. Compress Game Files (LZX)" -ForegroundColor Green
     Write-Host " Q. Quit"
@@ -462,6 +681,12 @@ do {
         'S' { Process-Scan; continue }
         's' { Process-Scan; continue }
 
+        'M' { Sync-Manifest; continue }
+        'm' { Sync-Manifest; continue }
+
+        'R' { Process-RevisionManager; continue }
+        'r' { Process-RevisionManager; continue }
+
         '1'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
         '2'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
         '3'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsInazuma; $desc = "Inazuma" }
@@ -472,20 +697,22 @@ do {
         '8'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya; $desc = "Snezhnaya" }
         '9'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMisc; $desc = "Events & Misc" }
         '10' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
+        '11' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Traveler Videos Only" }
+        '12' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Traveler Videos Only" }
 
         'U' {
-            Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
+            Write-Host "`nScanning for stubbed files..." -ForegroundColor Cyan
             $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "UNLOCK ALL"
+            $desc = "UNLOCK / RESTORE ALL"
         }
         'u' {
-            Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
+            Write-Host "`nScanning for stubbed files..." -ForegroundColor Cyan
             $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "UNLOCK ALL"
+            $desc = "UNLOCK / RESTORE ALL"
         }
 
         'G' {
@@ -521,7 +748,7 @@ do {
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','9','10','G','g','B','b','0','U','u') {
+    if ($choice -in '1','2','3','4','5','6','7','8','9','10','11','12','G','g','B','b','0','U','u') {
         if ($choice -in 'U','u') {
             Process-UnlockOnly -FilesToUnlock $selection -Description $desc
         } else {

@@ -11,7 +11,14 @@ This repository contains a single script which:
 
 ### Version
 
-- **Current script version: v10**
+- **Current script version: v11**
+
+### What's new in v11 (2026 Sep 24) - Major Improvements!
+- **Manifest Synchronization Engine (`[M]`):** Completely replaces restrictive Windows ACL Deny locks with direct `res_versions_persist` manifest synchronization. Stubbed 0KB files are registered as valid 0KB assets in the game's own asset database, passing integrity verification instantly and permanently stopping in-game patch re-downloads.
+- **In-Game Revision Manager (`[R]`):** View and synchronize internal revision numbers (`res_revision`, `silence_revision`, `data_revision`). Allows players to match the server's R-number during minor hotfixes to completely bypass the 2,580-file resource check.
+- **Auto-Elevation (Run as Admin):** The script now automatically detects if it is running with administrator privileges and restarts itself elevated if needed via UAC prompt, with automatic execution policy bypass.
+- **Fixed Menu Option Collisions (`[11]` / `[12]`):** Fixed duplicate `B` and `G` menu keys by giving standalone Traveler Gender cutscenes dedicated options (`11` for Boy, `12` for Girl), keeping `B` and `G` for bulk operations.
+- **Safe ACL Stripping (`[U]`):** Option to strip legacy `Deny Write, Delete` permissions left over from older versions, preventing `Download error -9908` and startup deadlocks.
 
 ### What's new in v10 (2026 Aug 14)
 - **Snezhnaya Region (ZhìDōng / 7.0):** Added support for Snezhnaya (`*ZD_*`, `*AQ70*`) cutscenes.
@@ -43,8 +50,7 @@ This repository contains a single script which:
 - **Universal path finder:** Locates cutscene/video folders automatically given the "Genshin Impact game" folder.
 - **Config Persistence:** Saves game path to `path.ini`.
 - **Space calculator & Scan Mode:** Reports total space to be reclaimed (MB / GB) and status per region (`[S]`).
-- **Selective optimization:** Pick specific regions, clear UGC cache, stub unused MC gender videos, or stub all at once.
-- **Anti-Redownload Lock:** Uses ACL Deny rules to keep 0KB files locked against launcher overwrite.
+- **Anti-Redownload Manifest Engine:** Synchronizes the internal asset database (`res_versions_persist`) to mark 0KB stubs as intact, permanently stopping patcher redownloads without restrictive ACL locks.
 - **NTFS LZX Compression:** Built-in option (`[C]`) using Windows `compact.exe` for extra compression savings.
 
 ### Supported Optimization Options
@@ -55,15 +61,15 @@ This repository contains a single script which:
 
 ### Requirements
 - Windows 10+ with PowerShell (built-in).
-- ExecutionPolicy that allows running scripts, or run PowerShell as administrator and set an appropriate policy for the session:
-  - *Example (temporary, session-only):* In an elevated PowerShell: `Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process`
+- Administrative privileges (the script automatically prompts for elevation and handles ExecutionPolicy bypass if not already running as Admin).
 
 ### Usage
 1. Download `GenshinSlimmer.ps1` from this repository.
-2. Right-click the file and choose **"Run with PowerShell"** — or open PowerShell, navigate to the file location and run:
+2. Right-click the file and choose **"Run with PowerShell"** — or run from your terminal:
    ```powershell
    .\GenshinSlimmer.ps1
    ```
+   *(If not running as Admin, a Windows UAC prompt will appear to automatically elevate.)*
 
 ### Screenshot of a run example from v9
 <img width="632" height="606" alt="image" src="https://github.com/user-attachments/assets/debd065e-a1e9-4808-91ac-6522b79120d2" />
