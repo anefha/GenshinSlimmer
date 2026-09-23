@@ -187,7 +187,20 @@ function Sync-Manifest {
         try { Copy-Item -LiteralPath $persistPath -Destination $backupPath -Force } catch {}
     }
 
-    [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+    # Ensure file is writable (strip ReadOnly attribute and Deny rules)
+    Remove-FileLock -Path $persistPath
+    try {
+        $persistItem = Get-Item -LiteralPath $persistPath -Force -ErrorAction SilentlyContinue
+        if ($persistItem -and $persistItem.IsReadOnly) { $persistItem.IsReadOnly = $false }
+    } catch {}
+
+    try {
+        [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        Write-Host "`nError writing to res_versions_persist: $_" -ForegroundColor Red
+        if (-not $Silent) { Read-Host "Press Enter to continue..." }
+        return 0
+    }
 
     if (-not $Silent) {
         Write-Host "Success! Synchronized $patchedCount stubbed assets in res_versions_persist." -ForegroundColor Green
@@ -241,7 +254,19 @@ function Restore-Manifest {
         }
     }
 
-    [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+    # Ensure file is writable (strip ReadOnly attribute and Deny rules)
+    Remove-FileLock -Path $persistPath
+    try {
+        $persistItem = Get-Item -LiteralPath $persistPath -Force -ErrorAction SilentlyContinue
+        if ($persistItem -and $persistItem.IsReadOnly) { $persistItem.IsReadOnly = $false }
+    } catch {}
+
+    try {
+        [System.IO.File]::WriteAllLines($persistPath, $output, [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        Write-Host "`nError writing to res_versions_persist: $_" -ForegroundColor Red
+        return 0
+    }
     return $restoredCount
 }
 
