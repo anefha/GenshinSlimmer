@@ -1,13 +1,12 @@
 ##                                                                GenshinSlimmer
-<p align="center"><img width="480" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
+<p align="center"><img width="512" height="768" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
 GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
 
 This repository contains a single script which:
 - finds the game's asset folders automatically (including `StreamingAssets` and `Persistent` data locations),
 - calculates how much space will be freed,
-- provides a non-destructive **Scan & Analyze** preview mode (`[S]`),
-- stubs & locks files using Windows ACL rules to prevent the launcher from re-downloading deleted assets,
-- and requires explicit confirmation before modifying anything.
+- provides a non-destructive **Scan & Analyze** preview mode (`[S]`)
+- stubs the files to be 0kb with a new, reworked method of preventing re-downloads with a nicely detailed menu!
 
 ### Version
 
