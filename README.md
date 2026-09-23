@@ -1,5 +1,5 @@
 ##                                                                GenshinSlimmer
-<p align="center"><img width="256" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
+<p align="center"><img width="480" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
 GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
 
 This repository contains a single script which:
@@ -71,5 +71,8 @@ This repository contains a single script which:
    ```
    *(If not running as Admin, a Windows UAC prompt will appear to automatically elevate.)*
 
-### Screenshot of a run example from v9
-<img width="632" height="606" alt="image" src="https://github.com/user-attachments/assets/debd065e-a1e9-4808-91ac-6522b79120d2" />
+### Screenshot of a run example from v11
+<img width="656" height="576" alt="Screenshot 2026-09-24 015828" src="https://github.com/user-attachments/assets/487f66f4-6a4a-428b-9fba-61e2609a0758" />
+
+<img width="848" height="457" alt="image" src="https://github.com/user-attachments/assets/d7073824-543d-4630-ab68-e30ed9d72416" />
+
